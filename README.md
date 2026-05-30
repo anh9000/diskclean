@@ -16,9 +16,11 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 
 - Pure Python, zero dependencies, runs anywhere Python runs
 - A command prompt: type `scan discord` (or any app) and it finds that app's cache for your OS and offers to clean it. Great for a quick one app speedrun.
+- Browser caches across every profile, not just the default one, for Chrome, Edge, Brave, Opera, Opera GX, Vivaldi, Chromium, and Firefox
+- Optional age filter: clean only items older than a number of days you set, so recent files are left alone
 - Monochrome white terminal theme with an ASCII banner
 - Live progress bar with elapsed time and ETA while scanning and cleaning
-- Pick exactly what to clean from a numbered menu (single items, ranges, or all)
+- Pick exactly what to clean from a numbered menu, sorted largest first, with the total reclaimable shown up top
 - Clear confirmation before anything is deleted
 - Per item result after cleaning: done, partial, or skipped
 - A timestamped history log so you can see your last runs and how space changed
@@ -32,7 +34,8 @@ diskclean opens to a command prompt. These are the commands it accepts:
 | Command | What it does |
 | --- | --- |
 | `scan <app>` | Clean one app cache by name, for example `scan discord`. It finds that app's cache for your operating system, shows the size, and asks before it cleans. |
-| `all` | Scan every safe cache and temp location, then pick what to clean from a numbered menu. |
+| `all` | Scan every safe cache and temp location, then pick what to clean from a numbered menu sorted largest first, with the total reclaimable shown at the top. |
+| `age <days>` | Only scan and clean items older than N days, for example `age 30`. Type `age off` to clear it. |
 | `drives` | Pick a drive to see a read only overview of where its space is used. Nothing here is deleted. |
 | `apps` | List the apps you can scan by name. |
 | `q` | Quit. |
@@ -41,7 +44,7 @@ In the `all` menu you choose what to clean by number. You can type a single numb
 
 `scan <app>` matches the app name to a known cache location for your operating system, so `scan discord` looks in the right place on Windows, macOS, and Linux. It only ever touches that app's cache folders, never its settings or login. If the app is not installed, or it is a sandboxed build such as a Linux Flatpak or Snap, it reports nothing to clean instead of touching anything else.
 
-Apps you can scan by name include Discord, Chrome, Edge, Brave, Opera, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, and npm. The exact list adapts to your operating system, and you can always type `apps` to see it.
+Apps you can scan by name include Discord, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, and npm, plus browsers (Chrome, Edge, Brave, Opera, Opera GX, Vivaldi, Chromium, and Firefox) which are cleaned across every profile. The list adapts to your operating system and shows only what is installed, so type `apps` to see your set.
 
 ## Safety
 
@@ -61,11 +64,11 @@ macOS and Linux: run `./diskclean.sh`, or `python3 diskclean.py`. Make the scrip
 
 ## What it cleans
 
-Windows: user temp, Windows temp, crash dumps, pip cache, NVIDIA shader cache, Chrome cache, Edge cache, Spotify cache, Discord cache.
+Windows: user temp, Windows temp, crash dumps, pip cache, NVIDIA shader cache, Spotify cache, Discord cache, and every installed browser's cache across all profiles (Chrome, Edge, Brave, Opera, Vivaldi, Firefox).
 
-macOS: user Library caches, user logs, Trash, Chrome cache, pip cache.
+macOS: user Library caches (which already includes browser caches), user logs, Trash, pip cache.
 
-Linux: the user cache in ~/.cache, thumbnail cache, Trash, pip cache, Chrome and Chromium cache.
+Linux: the user cache in ~/.cache (which already includes browser caches), thumbnail cache, Trash, pip cache.
 
 If an app or folder is not present on your machine, it simply shows as empty and is skipped.
 

@@ -58,6 +58,9 @@ RESET = "\033[0m"
 
 WIDTH = 64
 
+# session options the user can change at the prompt (for example: age 30)
+OPTS = {"age_days": None}
+
 BANNER = r"""
     __ __         __          __
 .--|  |__|.-----.|  |--.----.|  |.-----.---.-.-----.
@@ -157,8 +160,9 @@ class Bar:
 # ---------------------------------------------------------------------------
 # file system helpers
 # ---------------------------------------------------------------------------
-def iter_files(path):
-    """Yield every file under a path, skipping anything unreadable."""
+def iter_files(path, cutoff=None):
+    """Yield every file under a path, skipping anything unreadable. When cutoff
+    is set (a unix timestamp), only files last modified before it are yielded."""
     try:
         with os.scandir(path) as it:
             for entry in it:
@@ -166,8 +170,14 @@ def iter_files(path):
                     if entry.is_symlink():
                         continue
                     if entry.is_dir(follow_symlinks=False):
-                        yield from iter_files(entry.path)
+                        yield from iter_files(entry.path, cutoff)
                     elif entry.is_file(follow_symlinks=False):
+                        if cutoff is not None:
+                            try:
+                                if entry.stat(follow_symlinks=False).st_mtime > cutoff:
+                                    continue
+                            except OSError:
+                                continue
                         yield entry.path
                 except OSError:
                     continue
@@ -175,13 +185,21 @@ def iter_files(path):
         return
 
 
-def dir_size(paths):
+def _cutoff(min_age_days):
+    """Convert an age in days to a unix mtime cutoff, or None for no filter."""
+    if not min_age_days:
+        return None
+    return time.time() - float(min_age_days) * 86400.0
+
+
+def dir_size(paths, min_age_days=None):
     """Total size in bytes across one or more paths."""
+    cutoff = _cutoff(min_age_days)
     total = 0
     for p in paths:
         if not os.path.exists(p):
             continue
-        for f in iter_files(p):
+        for f in iter_files(p, cutoff):
             try:
                 total += os.path.getsize(f)
             except OSError:
@@ -195,11 +213,12 @@ def _clear_line():
     sys.stdout.flush()
 
 
-def dir_size_live(paths, label, idx=None, total=None):
+def dir_size_live(paths, label, idx=None, total=None, min_age_days=None):
     """Total size with a live display. When idx and total are given it shows a
     progress bar for the outer scan (item idx of total) with the current item's
     running size, so scanning looks like a loading bar. Otherwise it shows a
     plain status line (used for single item scans)."""
+    cutoff = _cutoff(min_age_days)
     nbytes = 0.0
     count = 0
     start = time.monotonic()
@@ -223,7 +242,7 @@ def dir_size_live(paths, label, idx=None, total=None):
     for p in paths:
         if not os.path.exists(p):
             continue
-        for f in iter_files(p):
+        for f in iter_files(p, cutoff):
             try:
                 nbytes += os.path.getsize(f)
             except OSError:
@@ -236,13 +255,14 @@ def dir_size_live(paths, label, idx=None, total=None):
     return nbytes
 
 
-def clear_paths(paths, label):
+def clear_paths(paths, label, min_age_days=None):
     """Delete file contents under each path with a live progress bar.
     Returns (freed_bytes, failed_count). Folders are kept; only contents go."""
+    cutoff = _cutoff(min_age_days)
     files = []
     for p in paths:
         if os.path.exists(p):
-            files.extend(iter_files(p))
+            files.extend(iter_files(p, cutoff))
     freed = 0
     failed = 0
     b = Bar(len(files) or 1, label=label)
@@ -292,6 +312,119 @@ def _env_path(var, default):
     return Path(os.environ.get(var, str(default)))
 
 
+# ---------------------------------------------------------------------------
+# browser cache discovery (covers every profile, not just Default)
+# ---------------------------------------------------------------------------
+def _chromium_cache_dirs(profile):
+    p = Path(profile)
+    return [p / "Cache", p / "Code Cache", p / "GPUCache",
+            p / "Service Worker" / "CacheStorage"]
+
+
+def _chromium_user_data_caches(user_data_root):
+    """All cache dirs across every profile in a Chromium User Data folder."""
+    root = Path(user_data_root)
+    paths = []
+    if not root.is_dir():
+        return paths
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return paths
+    for entry in entries:
+        try:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        n = entry.name
+        if n == "Default" or n.startswith("Profile ") or n in ("Guest Profile", "System Profile"):
+            paths.extend(_chromium_cache_dirs(entry.path))
+    return paths
+
+
+def _single_profile_caches(profile_root):
+    """Cache dirs for a browser whose profile root is the folder itself (Opera)."""
+    root = Path(profile_root)
+    if not root.is_dir():
+        return []
+    return _chromium_cache_dirs(root)
+
+
+def _firefox_caches(profiles_root):
+    """cache2 folders across every Firefox profile."""
+    root = Path(profiles_root)
+    out = []
+    if not root.is_dir():
+        return out
+    try:
+        for entry in os.scandir(root):
+            if entry.is_dir(follow_symlinks=False):
+                out.append(Path(entry.path) / "cache2")
+    except OSError:
+        pass
+    return out
+
+
+def browser_caches():
+    """Map a browser name to its cache paths across every profile for this OS.
+    Covers Chrome, Edge, Brave, Vivaldi, Chromium, Opera, Opera GX, and Firefox.
+    Only browsers that are actually present are returned."""
+    home = Path.home()
+    s = platform.system()
+    out = {}
+    if s == "Windows":
+        la = _env_path("LOCALAPPDATA", home / "AppData" / "Local")
+        for name, ud in (
+            ("Chrome", la / "Google" / "Chrome" / "User Data"),
+            ("Edge", la / "Microsoft" / "Edge" / "User Data"),
+            ("Brave", la / "BraveSoftware" / "Brave-Browser" / "User Data"),
+            ("Vivaldi", la / "Vivaldi" / "User Data"),
+            ("Chromium", la / "Chromium" / "User Data"),
+        ):
+            paths = _chromium_user_data_caches(ud)
+            if paths:
+                out[name] = paths
+        for name, root in (
+            ("Opera", la / "Opera Software" / "Opera Stable"),
+            ("Opera GX", la / "Opera Software" / "Opera GX Stable"),
+        ):
+            paths = _single_profile_caches(root)
+            if paths:
+                out[name] = paths
+        ff = _firefox_caches(la / "Mozilla" / "Firefox" / "Profiles")
+        if ff:
+            out["Firefox"] = ff
+    elif s == "Darwin":
+        c = home / "Library" / "Caches"
+        for name, cand in (
+            ("Chrome", [c / "Google" / "Chrome"]),
+            ("Edge", [c / "Microsoft Edge"]),
+            ("Brave", [c / "BraveSoftware" / "Brave-Browser"]),
+            ("Opera", [c / "com.operasoftware.Opera"]),
+            ("Vivaldi", [c / "Vivaldi"]),
+            ("Firefox", [c / "Firefox"]),
+        ):
+            existing = [p for p in cand if Path(p).is_dir()]
+            if existing:
+                out[name] = existing
+    else:
+        cache = _env_path("XDG_CACHE_HOME", home / ".cache")
+        for name, cand in (
+            ("Chrome", [cache / "google-chrome"]),
+            ("Chromium", [cache / "chromium"]),
+            ("Edge", [cache / "microsoft-edge"]),
+            ("Brave", [cache / "BraveSoftware" / "Brave-Browser"]),
+            ("Opera", [cache / "opera"]),
+            ("Vivaldi", [cache / "vivaldi"]),
+            ("Firefox", [cache / "mozilla" / "firefox"]),
+        ):
+            existing = [p for p in cand if Path(p).is_dir()]
+            if existing:
+                out[name] = existing
+    return out
+
+
 def get_targets():
     sysname = platform.system()
     home = Path.home()
@@ -309,12 +442,6 @@ def get_targets():
             Target("pip cache", [la / "pip" / "cache"], "Python package cache.", False),
             Target("NVIDIA shader cache", [la / "NVIDIA" / "DXCache", la / "NVIDIA" / "GLCache"],
                    "GPU shader cache. Games rebuild it.", False),
-            Target("Chrome cache", [la / "Google" / "Chrome" / "User Data" / "Default" / "Cache",
-                                    la / "Google" / "Chrome" / "User Data" / "Default" / "Code Cache",
-                                    la / "Google" / "Chrome" / "User Data" / "Default" / "GPUCache"],
-                   "Browser cache. Logins are kept.", False),
-            Target("Edge cache", [la / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache"],
-                   "Browser cache. Logins are kept.", False),
             Target("Spotify cache", [la / "Spotify" / "Storage", la / "Spotify" / "Data"],
                    "Cached and offline song data.", False),
             Target("Discord cache", [ra / "discord" / "Cache", ra / "discord" / "Code Cache",
@@ -327,8 +454,6 @@ def get_targets():
             Target("User caches", [lib / "Caches"], "App caches in your Library.", False),
             Target("User logs", [lib / "Logs"], "App log files.", False),
             Target("Trash", [home / ".Trash"], "Your Trash.", False),
-            Target("Chrome cache", [lib / "Caches" / "Google" / "Chrome"],
-                   "Browser cache. Logins are kept.", False),
             Target("pip cache", [lib / "Caches" / "pip"], "Python package cache.", False),
         ]
 
@@ -339,9 +464,12 @@ def get_targets():
             Target("Thumbnail cache", [cache / "thumbnails"], "Image thumbnail cache.", False),
             Target("Trash", [home / ".local" / "share" / "Trash"], "Your Trash.", False),
             Target("pip cache", [cache / "pip"], "Python package cache.", False),
-            Target("Chrome cache", [cache / "google-chrome", cache / "chromium"],
-                   "Browser cache. Logins are kept.", False),
         ]
+
+    if sysname == "Windows":
+        for name, paths in browser_caches().items():
+            t.append(Target(name + " cache", paths,
+                            "Browser cache across all profiles. Logins are kept.", False))
 
     return t
 
@@ -582,24 +710,8 @@ def app_catalog():
         [ra / "discord" / "Cache", ra / "discord" / "Code Cache", ra / "discord" / "GPUCache"],
         [appsup / "discord" / "Cache", appsup / "discord" / "Code Cache"],
         [cfg / "discord" / "Cache", cfg / "discord" / "Code Cache"])
-    add("chrome", "Google Chrome cache.",
-        [la / "Google" / "Chrome" / "User Data" / "Default" / "Cache",
-         la / "Google" / "Chrome" / "User Data" / "Default" / "Code Cache",
-         la / "Google" / "Chrome" / "User Data" / "Default" / "GPUCache"],
-        [lib / "Caches" / "Google" / "Chrome"],
-        [cache / "google-chrome"])
-    add("edge", "Microsoft Edge cache.",
-        [la / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache"],
-        [lib / "Caches" / "Microsoft Edge"],
-        [cache / "microsoft-edge"])
-    add("brave", "Brave browser cache.",
-        [la / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Cache"],
-        [lib / "Caches" / "BraveSoftware" / "Brave-Browser"],
-        [cache / "BraveSoftware" / "Brave-Browser"])
-    add("opera", "Opera browser cache.",
-        [la / "Opera Software" / "Opera Stable" / "Cache"],
-        [lib / "Caches" / "com.operasoftware.Opera"],
-        [cache / "opera"])
+    # browsers are added from browser_caches() below so every profile is
+    # covered, not just Default, across Chrome, Edge, Brave, Opera, and more.
     add("spotify", "Spotify cache.",
         [la / "Spotify" / "Storage", la / "Spotify" / "Data"],
         [lib / "Caches" / "com.spotify.client"],
@@ -627,6 +739,9 @@ def app_catalog():
         [la / "pip" / "cache"], [lib / "Caches" / "pip"], [cache / "pip"])
     add("npm", "Node npm cache.",
         [ra / "npm-cache"], [home / ".npm" / "_cacache"], [home / ".npm" / "_cacache"])
+
+    for name, paths in browser_caches().items():
+        cat[name.lower()] = (paths, name + " cache across all profiles. Logins are kept.")
 
     return cat
 
@@ -675,7 +790,9 @@ def scan_one(name, admin):
 
     print()
     bar_title("SCAN  " + target.name)
-    size = dir_size_live(target.paths, target.name)
+    if OPTS["age_days"]:
+        dim(f"Age filter on: only items older than {OPTS['age_days']} days are counted and cleaned.")
+    size = dir_size_live(target.paths, target.name, min_age_days=OPTS["age_days"])
     if size == 0:
         say(f"{target.name}: nothing to clean. Not installed, or already empty.")
         for p in target.paths:
@@ -690,7 +807,7 @@ def scan_one(name, admin):
         dim("Skipped.")
         return 0, None
 
-    freed, failed = clear_paths(target.paths, target.name)
+    freed, failed = clear_paths(target.paths, target.name, min_age_days=OPTS["age_days"])
     if failed == 0:
         print(f"  {FG_HOT}[ DONE ]  {FG}{target.name}  freed {fmt_size(freed)}{RESET}")
     else:
@@ -703,17 +820,20 @@ def run_once(admin):
     rule()
     bar_title("SCAN")
     dim("Measuring safe cache and temp locations, please wait.")
+    if OPTS["age_days"]:
+        dim(f"Age filter on: only items older than {OPTS['age_days']} days are counted and cleaned.")
     print()
 
     targets = get_targets()
     for i, t in enumerate(targets, 1):
-        t.size = dir_size_live(t.paths, t.name, i, len(targets))
+        t.size = dir_size_live(t.paths, t.name, i, len(targets), min_age_days=OPTS["age_days"])
         flag = ""
         if t.needs_priv and not admin:
             flag = GREY + "  (needs admin)" + RESET
         print(f"  {FG}{t.name.ljust(22)}{FG_HOT}{fmt_size(t.size).rjust(10)}{RESET}{flag}")
 
-    cleanable = [t for t in targets if t.size > 0]
+    cleanable = sorted([t for t in targets if t.size > 0],
+                       key=lambda t: t.size, reverse=True)
     total = sum(t.size for t in cleanable)
     print()
     rule()
@@ -767,7 +887,7 @@ def run_once(admin):
         if t.needs_priv and not admin:
             print(f"  {GREY}[ SKIP ]  {t.name}  needs admin{RESET}")
             continue
-        freed, failed = clear_paths(t.paths, t.name)
+        freed, failed = clear_paths(t.paths, t.name, min_age_days=OPTS["age_days"])
         freed_total += freed
         cleaned.append(t.name)
         if failed == 0:
@@ -792,6 +912,27 @@ def _finish(freed, cleaned):
     dim("History log: " + str(log_path()))
 
 
+def set_age(arg):
+    """Set or clear the age filter from a command like 'age 30' or 'age off'."""
+    arg = arg.strip().lower()
+    if arg in ("off", "0", "none", "all", "any"):
+        OPTS["age_days"] = None
+        say("Age filter off. Scans and cleaning include files of any age.", WHITE)
+        return
+    if arg == "":
+        if OPTS["age_days"]:
+            say(f"Age filter on: only items older than {OPTS['age_days']} days.", WHITE)
+        else:
+            say("Age filter is off.", WHITE)
+        dim("Set it with a number of days, for example: age 30   turn it off with: age off")
+        return
+    if arg.isdigit() and int(arg) > 0:
+        OPTS["age_days"] = int(arg)
+        say(f"Age filter set: only items older than {int(arg)} days will be scanned and cleaned.", WHITE)
+    else:
+        dim("Use a number of days, for example: age 30   or: age off")
+
+
 def main():
     admin = is_admin()
     os.system("cls" if os.name == "nt" else "clear")
@@ -808,9 +949,12 @@ def main():
         bar_title("COMMAND")
         dim("scan <app>   clean one app cache by name (example: scan discord)")
         dim("all          scan all safe cache and temp locations")
+        dim("age <days>   only clean items older than N days (age off to clear)")
         dim("drives       pick a drive to see where its space is used")
         dim("apps         list the apps you can scan by name")
         dim("q            quit")
+        if OPTS["age_days"]:
+            dim(f"age filter: on, older than {OPTS['age_days']} days")
         print()
         cmd = ask("diskclean").strip()
         low = cmd.lower()
@@ -828,6 +972,9 @@ def main():
             did, freed, cleaned = run_once(admin)
             if cleaned:
                 _finish(freed, cleaned)
+        elif low == "age" or low.startswith("age "):
+            print()
+            set_age(cmd[3:])
         elif low == "scan":
             dim("Type the app name too, for example: scan discord")
         elif low.startswith("scan "):
@@ -835,7 +982,7 @@ def main():
             if cleaned:
                 _finish(freed, [cleaned])
         else:
-            dim("Unknown command. Try: scan <app>, all, drives, apps, or q.")
+            dim("Unknown command. Try: scan <app>, all, age <days>, drives, apps, or q.")
         print()
 
     print()
