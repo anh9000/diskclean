@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+diskclean_history.log
+.DS_Store
+Thumbs.db
