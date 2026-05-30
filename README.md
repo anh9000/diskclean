@@ -19,6 +19,7 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 - Clear confirmation before anything is deleted
 - Per item result after cleaning: done, partial, or skipped
 - A timestamped history log so you can see your last runs and how space changed
+- Pick a drive to see a read-only overview of where its space is used. Cloud and network mounts (Google Drive, rclone, network shares) are detected and skipped so it does not crawl them
 - Cross platform: it knows the right cache locations for Windows, macOS, and Linux
 
 ## Safety

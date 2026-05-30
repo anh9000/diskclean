@@ -332,6 +332,125 @@ def is_admin():
 
 
 # ---------------------------------------------------------------------------
+# drive detection and read only overview
+# ---------------------------------------------------------------------------
+class Drive:
+    def __init__(self, label, root, free, total, cloud):
+        self.label = label
+        self.root = root
+        self.free = free
+        self.total = total
+        self.cloud = cloud
+
+
+def get_drives():
+    out = []
+    cloud_limit = 100 * (1024 ** 4)  # over 100 TB means a cloud or virtual mount
+    if os.name == "nt":
+        import ctypes
+        import string
+        from ctypes import wintypes, create_unicode_buffer, byref
+        try:
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        except Exception:
+            bitmask = 0
+        for i, letter in enumerate(string.ascii_uppercase):
+            if not (bitmask & (1 << i)):
+                continue
+            root = f"{letter}:\\"
+            try:
+                u = shutil.disk_usage(root)
+            except OSError:
+                continue
+            label, fs, dtype = "", "", 0
+            try:
+                volb = create_unicode_buffer(261)
+                fsb = create_unicode_buffer(261)
+                serial, maxlen, flags = wintypes.DWORD(), wintypes.DWORD(), wintypes.DWORD()
+                ctypes.windll.kernel32.GetVolumeInformationW(
+                    root, volb, 261, byref(serial), byref(maxlen), byref(flags), fsb, 261)
+                label, fs = volb.value, fsb.value
+                dtype = ctypes.windll.kernel32.GetDriveTypeW(root)
+            except Exception:
+                pass
+            # cloud or virtual mount markers: fake huge size, network drive,
+            # a FUSE or rclone or Dokan filesystem, or an account named volume
+            # (Google Drive and similar label the drive with the account email).
+            cloud = (u.total > cloud_limit or dtype == 4
+                     or any(m in fs.lower() for m in ("fuse", "rclone", "dokan"))
+                     or "@" in label)
+            out.append(Drive(letter, root, u.free, u.total, cloud))
+    else:
+        roots = ["/"]
+        for base in ("/Volumes", "/media", "/mnt"):
+            if os.path.isdir(base):
+                try:
+                    for name in sorted(os.listdir(base)):
+                        p = os.path.join(base, name)
+                        if os.path.isdir(p):
+                            roots.append(p)
+                except OSError:
+                    pass
+        for root in roots:
+            try:
+                u = shutil.disk_usage(root)
+            except OSError:
+                continue
+            out.append(Drive(root, root, u.free, u.total, u.total > cloud_limit))
+    return out
+
+
+def drive_overview(root):
+    print()
+    bar_title("DRIVE OVERVIEW  " + root)
+    dim("Read only. Shows where space is used. Nothing here is deleted.")
+    print()
+    say("Measuring top level folders, this can take a few minutes.")
+    print()
+    try:
+        entries = [e for e in os.scandir(root) if e.is_dir(follow_symlinks=False)]
+    except OSError as e:
+        dim(f"Cannot read {root}: {e}")
+        return
+    rows = []
+    n = len(entries)
+    for i, e in enumerate(entries, 1):
+        sz = dir_size_live([e.path], f"[{i}/{n}] {e.name}")
+        rows.append((e.name, sz))
+        print(f"  {FG_DIM}{e.name.ljust(28)}{fmt_size(sz).rjust(10)}{RESET}")
+    print()
+    say("Largest folders:", WHITE)
+    for name, sz in sorted(rows, key=lambda r: r[1], reverse=True)[:12]:
+        print(f"  {FG}{name.ljust(28)}{FG_HOT}{fmt_size(sz).rjust(10)}{RESET}")
+    print()
+    rule()
+    dim("This is only a view of where space is. Nothing was deleted.")
+
+
+def offer_drive_overview():
+    drives = get_drives()
+    if not drives:
+        return
+    bar_title("DRIVE SCAN")
+    dim("Pick a drive to see where its space is used (read only).")
+    print()
+    selectable = [d for d in drives if not d.cloud]
+    for i, d in enumerate(selectable, 1):
+        info = f"{fmt_size(d.free)} free of {fmt_size(d.total)}"
+        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {d.label.ljust(14)}{info}{RESET}")
+    for d in drives:
+        if d.cloud:
+            print(f"  {GREY}    {d.label.ljust(14)}cloud or network, not scannable here{RESET}")
+    print()
+    ans = ask("Drive to scan for an overview (number, or Enter to skip)").strip()
+    if ans.isdigit():
+        idx = int(ans)
+        if 1 <= idx <= len(selectable):
+            drive_overview(selectable[idx - 1].root)
+    print()
+
+
+# ---------------------------------------------------------------------------
 # selection parser: "1,3,5" or "2-6" or "all"
 # ---------------------------------------------------------------------------
 def parse_selection(text, count):
@@ -410,14 +529,6 @@ def show_history():
 # ---------------------------------------------------------------------------
 # main flow
 # ---------------------------------------------------------------------------
-def disk_summary():
-    try:
-        usage = shutil.disk_usage(str(Path.home()))
-        say(f"Disk: {fmt_size(usage.free)} free of {fmt_size(usage.total)}", WHITE)
-    except Exception:
-        pass
-
-
 def run_once(admin):
     rule()
     bar_title("SCAN")
@@ -508,9 +619,9 @@ def main():
             dim("Not running as administrator. Windows Temp will be skipped.")
             dim("Run as administrator to include it.")
             print()
-        disk_summary()
         show_history()
         print()
+        offer_drive_overview()
 
         did, freed, cleaned = run_once(admin)
 
