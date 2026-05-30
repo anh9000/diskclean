@@ -529,6 +529,151 @@ def show_history():
 # ---------------------------------------------------------------------------
 # main flow
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# named app catalog: scan one app's cache by name, per OS
+# ---------------------------------------------------------------------------
+def app_catalog():
+    """Map common app names to their cache paths for the current OS."""
+    home = Path.home()
+    s = platform.system()
+    la = _env_path("LOCALAPPDATA", home / "AppData" / "Local")
+    ra = _env_path("APPDATA", home / "AppData" / "Roaming")
+    cache = _env_path("XDG_CACHE_HOME", home / ".cache")
+    cfg = _env_path("XDG_CONFIG_HOME", home / ".config")
+    lib = home / "Library"
+    appsup = lib / "Application Support"
+
+    def pick(w, m, x):
+        return w if s == "Windows" else (m if s == "Darwin" else x)
+
+    cat = {}
+
+    def add(name, desc, w, m, x):
+        paths = pick(w, m, x)
+        if paths:
+            cat[name] = (paths, desc)
+
+    add("discord", "Discord media and code cache.",
+        [ra / "discord" / "Cache", ra / "discord" / "Code Cache", ra / "discord" / "GPUCache"],
+        [appsup / "discord" / "Cache", appsup / "discord" / "Code Cache"],
+        [cfg / "discord" / "Cache", cfg / "discord" / "Code Cache"])
+    add("chrome", "Google Chrome cache.",
+        [la / "Google" / "Chrome" / "User Data" / "Default" / "Cache",
+         la / "Google" / "Chrome" / "User Data" / "Default" / "Code Cache",
+         la / "Google" / "Chrome" / "User Data" / "Default" / "GPUCache"],
+        [lib / "Caches" / "Google" / "Chrome"],
+        [cache / "google-chrome"])
+    add("edge", "Microsoft Edge cache.",
+        [la / "Microsoft" / "Edge" / "User Data" / "Default" / "Cache"],
+        [lib / "Caches" / "Microsoft Edge"],
+        [cache / "microsoft-edge"])
+    add("brave", "Brave browser cache.",
+        [la / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Cache"],
+        [lib / "Caches" / "BraveSoftware" / "Brave-Browser"],
+        [cache / "BraveSoftware" / "Brave-Browser"])
+    add("opera", "Opera browser cache.",
+        [la / "Opera Software" / "Opera Stable" / "Cache"],
+        [lib / "Caches" / "com.operasoftware.Opera"],
+        [cache / "opera"])
+    add("spotify", "Spotify cache.",
+        [la / "Spotify" / "Storage", la / "Spotify" / "Data"],
+        [lib / "Caches" / "com.spotify.client"],
+        [cache / "spotify"])
+    add("slack", "Slack cache.",
+        [ra / "Slack" / "Cache", ra / "Slack" / "Service Worker" / "CacheStorage"],
+        [appsup / "Slack" / "Cache"],
+        [cfg / "Slack" / "Cache"])
+    add("teams", "Microsoft Teams cache.",
+        [ra / "Microsoft" / "Teams" / "Cache"],
+        [appsup / "Microsoft" / "Teams" / "Cache"],
+        [cfg / "Microsoft" / "Microsoft Teams" / "Cache"])
+    add("vscode", "VS Code cache.",
+        [ra / "Code" / "Cache", ra / "Code" / "CachedData", ra / "Code" / "GPUCache"],
+        [appsup / "Code" / "Cache", appsup / "Code" / "CachedData"],
+        [cfg / "Code" / "Cache", cfg / "Code" / "CachedData"])
+    add("steam", "Steam shader and web cache.",
+        [Path("C:/Program Files (x86)/Steam/steamapps/shadercache"), la / "Steam" / "htmlcache"],
+        [appsup / "Steam" / "steamapps" / "shadercache"],
+        [home / ".steam" / "steam" / "steamapps" / "shadercache"])
+    add("nvidia", "NVIDIA shader cache.",
+        [la / "NVIDIA" / "DXCache", la / "NVIDIA" / "GLCache"],
+        [], [home / ".nv" / "GLCache"])
+    add("pip", "Python pip cache.",
+        [la / "pip" / "cache"], [lib / "Caches" / "pip"], [cache / "pip"])
+    add("npm", "Node npm cache.",
+        [ra / "npm-cache"], [home / ".npm" / "_cacache"], [home / ".npm" / "_cacache"])
+
+    return cat
+
+
+def resolve_app(name):
+    """Find a catalog app by exact name, then by substring. Returns (key, Target)
+    or (None, None) if nothing matches uniquely."""
+    name = name.strip().lower()
+    cat = app_catalog()
+    if name in cat:
+        paths, desc = cat[name]
+        return name, Target(name, paths, desc)
+    matches = [k for k in cat if name and name in k]
+    if len(matches) == 1:
+        paths, desc = cat[matches[0]]
+        return matches[0], Target(matches[0], paths, desc)
+    return None, None
+
+
+def list_apps():
+    cat = sorted(app_catalog())
+    say("Apps you can scan by name:", WHITE)
+    line = "  "
+    for a in cat:
+        if len(line) + len(a) + 2 > WIDTH:
+            print(FG + line + RESET)
+            line = "  "
+        line += a + "  "
+    if line.strip():
+        print(FG + line + RESET)
+
+
+def scan_one(name, admin):
+    """Scan one named app cache, show its size, and offer to clean it.
+    Returns (freed_bytes, cleaned_name or None)."""
+    key, target = resolve_app(name)
+    if not target:
+        cat = app_catalog()
+        near = [k for k in cat if name.strip().lower() in k]
+        if near:
+            dim("Did you mean: " + ", ".join(near))
+        else:
+            dim("No app by that name in the catalog.")
+            list_apps()
+        return 0, None
+
+    print()
+    bar_title("SCAN  " + target.name)
+    size = dir_size_live(target.paths, target.name)
+    if size == 0:
+        say(f"{target.name}: nothing to clean. Not installed, or already empty.")
+        for p in target.paths:
+            dim(p)
+        return 0, None
+
+    say(f"{target.name}: {fmt_size(size)}", WHITE)
+    dim(target.desc)
+    print()
+    say("This permanently wipes the files. They do NOT go to a recycle bin or trash.", FG_HOT)
+    if not ask_yesno(f"Clean {target.name} ({fmt_size(size)})?"):
+        dim("Skipped.")
+        return 0, None
+
+    freed, failed = clear_paths(target.paths, target.name)
+    if failed == 0:
+        print(f"  {FG_HOT}[ DONE ]  {FG}{target.name}  freed {fmt_size(freed)}{RESET}")
+    else:
+        print(f"  {WHITE}[ PART ]  {target.name}  freed {fmt_size(freed)}, "
+              f"{failed} files in use skipped{RESET}")
+    return freed, target.name
+
+
 def run_once(admin):
     rule()
     bar_title("SCAN")
@@ -609,46 +754,68 @@ def run_once(admin):
     return True, freed_total, cleaned
 
 
+def _finish(freed, cleaned):
+    try:
+        free_str = fmt_size(shutil.disk_usage(str(Path.home())).free)
+    except Exception:
+        free_str = "unknown"
+    rule()
+    say("Freed: " + fmt_size(freed) + "   |   Disk free now: " + free_str, WHITE)
+    rule()
+    items = ", ".join(cleaned) if cleaned else "none"
+    write_log(f"freed: {fmt_size(freed)}  |  free after: {free_str}  |  cleaned: {items}")
+    dim("History log: " + str(log_path()))
+
+
 def main():
+    admin = is_admin()
+    os.system("cls" if os.name == "nt" else "clear")
+    banner()
+    print()
+    if not admin and platform.system() == "Windows":
+        dim("Not running as administrator. Windows Temp is skipped in the full scan.")
+        dim("Run as administrator to include it.")
+        print()
+    show_history()
+    print()
+
     while True:
-        os.system("cls" if os.name == "nt" else "clear")
-        banner()
+        bar_title("COMMAND")
+        dim("scan <app>   clean one app cache by name (example: scan discord)")
+        dim("all          scan all safe cache and temp locations")
+        dim("drives       pick a drive to see where its space is used")
+        dim("apps         list the apps you can scan by name")
+        dim("q            quit")
         print()
-        admin = is_admin()
-        if not admin and platform.system() == "Windows":
-            dim("Not running as administrator. Windows Temp will be skipped.")
-            dim("Run as administrator to include it.")
-            print()
-        show_history()
-        print()
-        offer_drive_overview()
+        cmd = ask("diskclean").strip()
+        low = cmd.lower()
 
-        did, freed, cleaned = run_once(admin)
-
-        print()
-        rule()
-        bar_title("DONE")
-        if did:
-            say("Total freed this run: " + fmt_size(freed), WHITE)
-        try:
-            usage = shutil.disk_usage(str(Path.home()))
-            say("Disk free now: " + fmt_size(usage.free), WHITE)
-            free_str = fmt_size(usage.free)
-        except Exception:
-            free_str = "unknown"
-        rule()
-
-        items = ", ".join(cleaned) if cleaned else "none"
-        write_log(f"freed: {fmt_size(freed)}  |  free after: {free_str}  |  cleaned: {items}")
-        print()
-        dim("History log: " + str(log_path()))
-        print()
-
-        if not ask_yesno("Run another scan or cleanup? (n closes diskclean)"):
-            print()
-            say("Done. Run diskclean again any time.", WHITE)
-            print()
+        if low in ("q", "quit", "exit"):
             break
+        elif low == "":
+            pass
+        elif low == "apps":
+            print()
+            list_apps()
+        elif low == "drives":
+            offer_drive_overview()
+        elif low == "all":
+            did, freed, cleaned = run_once(admin)
+            if cleaned:
+                _finish(freed, cleaned)
+        elif low == "scan":
+            dim("Type the app name too, for example: scan discord")
+        elif low.startswith("scan "):
+            freed, cleaned = scan_one(cmd[5:].strip(), admin)
+            if cleaned:
+                _finish(freed, [cleaned])
+        else:
+            dim("Unknown command. Try: scan <app>, all, drives, apps, or q.")
+        print()
+
+    print()
+    say("Done. Run diskclean again any time.", WHITE)
+    print()
 
 
 if __name__ == "__main__":

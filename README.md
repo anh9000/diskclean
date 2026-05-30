@@ -13,6 +13,7 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 ## Features
 
 - Pure Python, zero dependencies, runs anywhere Python runs
+- A command prompt: type `scan discord` (or any app) and it finds that app's cache for your OS and offers to clean it. Great for a quick one app speedrun.
 - Monochrome white terminal theme with an ASCII banner
 - Live progress bar with elapsed time and ETA while scanning and cleaning
 - Pick exactly what to clean from a numbered menu (single items, ranges, or all)
@@ -50,12 +51,17 @@ If an app or folder is not present on your machine, it simply shows as empty and
 
 ## How it works
 
-1. It scans each safe location and shows the size, with a live progress line for big folders.
-2. It lists everything that has something to clean, with a running total.
-3. You type the numbers you want, for example `1,3,5` or `2-6` or `all`.
-4. It shows your selection and total, then asks for one final confirmation.
-5. It cleans with a progress bar and reports the result for each item.
-6. It writes a line to the history log and asks if you want to run again.
+diskclean opens to a command prompt. Type one of:
+
+- `scan <app>` clean a single app cache by name, for example `scan discord`. It finds that app's cache for your operating system, shows the size, and asks to clean it.
+- `all` scan every safe cache and temp location, then pick what to clean from a numbered menu (`1,3,5`, `2-6`, or `all`).
+- `drives` pick a drive to see a read-only overview of where its space is used.
+- `apps` list the apps you can scan by name.
+- `q` quit.
+
+Before anything is deleted it shows the size and a clear warning, then waits for your confirmation. Cleaning shows a live progress bar and a per item result (done, partial, or skipped). Each cleanup is written to the history log.
+
+Apps you can scan by name include Discord, Chrome, Edge, Brave, Opera, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, and npm. The exact list adapts to your operating system.
 
 ## Terminal font
 
