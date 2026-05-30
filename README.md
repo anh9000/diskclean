@@ -25,6 +25,24 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 - Pick a drive to see a read-only overview of where its space is used. Cloud and network mounts (Google Drive, rclone, network shares) are detected and skipped so it does not crawl them
 - Cross platform: it knows the right cache locations for Windows, macOS, and Linux
 
+## Commands
+
+diskclean opens to a command prompt. These are the commands it accepts:
+
+| Command | What it does |
+| --- | --- |
+| `scan <app>` | Clean one app cache by name, for example `scan discord`. It finds that app's cache for your operating system, shows the size, and asks before it cleans. |
+| `all` | Scan every safe cache and temp location, then pick what to clean from a numbered menu. |
+| `drives` | Pick a drive to see a read only overview of where its space is used. Nothing here is deleted. |
+| `apps` | List the apps you can scan by name. |
+| `q` | Quit. |
+
+In the `all` menu you choose what to clean by number. You can type a single number, a list like `1,3,5`, a range like `2-6`, or `all`.
+
+`scan <app>` matches the app name to a known cache location for your operating system, so `scan discord` looks in the right place on Windows, macOS, and Linux. It only ever touches that app's cache folders, never its settings or login. If the app is not installed, or it is a sandboxed build such as a Linux Flatpak or Snap, it reports nothing to clean instead of touching anything else.
+
+Apps you can scan by name include Discord, Chrome, Edge, Brave, Opera, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, and npm. The exact list adapts to your operating system, and you can always type `apps` to see it.
+
 ## Safety
 
 diskclean only ever touches a built in list of cache and temp folders that regenerate on their own. It never deletes system files, installed programs, or personal data. Nothing is removed without your confirmation.
@@ -53,17 +71,9 @@ If an app or folder is not present on your machine, it simply shows as empty and
 
 ## How it works
 
-diskclean opens to a command prompt. Type one of:
-
-- `scan <app>` clean a single app cache by name, for example `scan discord`. It finds that app's cache for your operating system, shows the size, and asks to clean it.
-- `all` scan every safe cache and temp location, then pick what to clean from a numbered menu (`1,3,5`, `2-6`, or `all`).
-- `drives` pick a drive to see a read-only overview of where its space is used.
-- `apps` list the apps you can scan by name.
-- `q` quit.
+diskclean opens to a command prompt. The commands it accepts are listed in the Commands section above.
 
 Before anything is deleted it shows the size and a clear warning, then waits for your confirmation. Cleaning shows a live progress bar and a per item result (done, partial, or skipped). Each cleanup is written to the history log.
-
-Apps you can scan by name include Discord, Chrome, Edge, Brave, Opera, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, and npm. The exact list adapts to your operating system.
 
 ## Terminal font
 
