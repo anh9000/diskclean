@@ -13,7 +13,7 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 ## Features
 
 - Pure Python, zero dependencies, runs anywhere Python runs
-- Green retro terminal theme with an ASCII banner
+- Monochrome white terminal theme with an ASCII banner
 - Live progress bar with elapsed time and ETA while scanning and cleaning
 - Pick exactly what to clean from a numbered menu (single items, ranges, or all)
 - Clear confirmation before anything is deleted

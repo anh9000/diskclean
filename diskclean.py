@@ -46,16 +46,14 @@ except Exception:
 
 
 # ---------------------------------------------------------------------------
-# green retro terminal theme
+# monochrome white terminal theme
 # ---------------------------------------------------------------------------
-GREEN = "\033[38;5;46m"
-GREEN_HOT = "\033[38;5;83m"
-GREEN_DIM = "\033[38;5;28m"
-WHITE = "\033[97m"
-GREY = "\033[90m"
-RED = "\033[91m"
-YELLOW = "\033[93m"
-INVERT = "\033[7m"
+FG = "\033[37m"        # primary text (white)
+FG_HOT = "\033[1;97m"  # bright white (headers, banner, highlights)
+FG_DIM = "\033[90m"    # grey (secondary, dim)
+WHITE = "\033[97m"     # bright white
+GREY = "\033[90m"      # grey
+INVERT = "\033[7m"     # inverted (black on white) for title bars
 RESET = "\033[0m"
 
 WIDTH = 64
@@ -71,27 +69,27 @@ BANNER = r"""
 
 def banner():
     for line in BANNER.strip("\n").splitlines():
-        print(GREEN_HOT + line + RESET)
-    print(GREEN_DIM + "  portable disk cache and temp cleaner" + RESET)
+        print(FG_HOT + line + RESET)
+    print(FG_DIM + "  portable disk cache and temp cleaner" + RESET)
 
 
 def rule():
-    print(GREEN_DIM + ("=" * WIDTH) + RESET)
+    print(FG_DIM + ("=" * WIDTH) + RESET)
 
 
 def bar_title(text):
     pad = WIDTH - len(text) - 2
     if pad < 0:
         pad = 0
-    print(INVERT + GREEN_HOT + "  " + text + (" " * pad) + RESET)
+    print(INVERT + FG_HOT + "  " + text + (" " * pad) + RESET)
 
 
-def say(text, color=GREEN):
+def say(text, color=FG):
     print(color + "  " + text + RESET)
 
 
 def dim(text):
-    print(GREEN_DIM + "  " + text + RESET)
+    print(FG_DIM + "  " + text + RESET)
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +140,7 @@ class Bar:
         elapsed = time.monotonic() - self.start
         rate = self.n / elapsed if elapsed > 0 else 0
         eta = (self.total - self.n) / rate if rate > 0 else 0
-        line = (f"{GREEN}  {self.label} {GREEN_HOT}[{bar}]{GREEN} "
+        line = (f"{FG}  {self.label} {FG_HOT}[{bar}]{FG} "
                 f"{int(frac * 100):3d}% | {self.n}/{self.total} "
                 f"[{fmt_time(elapsed)}<{fmt_time(eta)}, {rate:.1f}/s]{RESET}")
         sys.stdout.write("\r" + line + "    ")
@@ -206,7 +204,7 @@ def dir_size_live(paths, label):
             if count % 800 == 0:
                 el = int(time.monotonic() - start)
                 msg = f"  scanning {label}  {count:,} files  {fmt_size(total)}  {el}s"
-                sys.stdout.write("\r" + GREEN_DIM + msg[:WIDTH + 30] + RESET + "    ")
+                sys.stdout.write("\r" + FG_DIM + msg[:WIDTH + 30] + RESET + "    ")
                 sys.stdout.flush()
     sys.stdout.write("\r" + (" " * (WIDTH + 40)) + "\r")
     sys.stdout.flush()
@@ -356,7 +354,7 @@ def parse_selection(text, count):
 
 
 def ask(prompt):
-    sys.stdout.write(GREEN + "  " + prompt + " " + GREEN_DIM + "> " + RESET)
+    sys.stdout.write(FG + "  " + prompt + " " + FG_DIM + "> " + RESET)
     sys.stdout.flush()
     try:
         return input()
@@ -432,7 +430,7 @@ def run_once(admin):
         flag = ""
         if t.needs_priv and not admin:
             flag = GREY + "  (needs admin)" + RESET
-        print(f"  {GREEN}{t.name.ljust(22)}{GREEN_HOT}{fmt_size(t.size).rjust(10)}{RESET}{flag}")
+        print(f"  {FG}{t.name.ljust(22)}{FG_HOT}{fmt_size(t.size).rjust(10)}{RESET}{flag}")
 
     cleanable = [t for t in targets if t.size > 0]
     total = sum(t.size for t in cleanable)
@@ -455,7 +453,7 @@ def run_once(admin):
         flag = ""
         if t.needs_priv and not admin:
             flag = GREY + "  (needs admin)" + RESET
-        print(f"  {GREEN_HOT}{str(i).rjust(2)}.{GREEN} {t.name.ljust(22)}"
+        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {t.name.ljust(22)}"
               f"{fmt_size(t.size).rjust(10)}{RESET}{flag}")
     print()
 
@@ -470,10 +468,10 @@ def run_once(admin):
     print()
     say("You selected:", WHITE)
     for t in chosen:
-        print(f"  {GREEN}{t.name.ljust(22)}{GREEN_HOT}{fmt_size(t.size).rjust(10)}{RESET}")
+        print(f"  {FG}{t.name.ljust(22)}{FG_HOT}{fmt_size(t.size).rjust(10)}{RESET}")
     print()
-    say("This permanently wipes the selected files from your computer.", YELLOW)
-    say("They are deleted for good and do NOT go to a recycle bin or trash.", YELLOW)
+    say("This permanently wipes the selected files from your computer.", FG_HOT)
+    say("They are deleted for good and do NOT go to a recycle bin or trash.", FG_HOT)
     if not ask_yesno(f"Delete these {len(chosen)} items ({fmt_size(sel_total)})?"):
         print()
         dim("Cancelled. No changes made.")
@@ -492,9 +490,9 @@ def run_once(admin):
         freed_total += freed
         cleaned.append(t.name)
         if failed == 0:
-            print(f"  {GREEN_HOT}[ DONE ]  {GREEN}{t.name}  freed {fmt_size(freed)}{RESET}")
+            print(f"  {FG_HOT}[ DONE ]  {FG}{t.name}  freed {fmt_size(freed)}{RESET}")
         else:
-            print(f"  {YELLOW}[ PART ]  {t.name}  freed {fmt_size(freed)}, "
+            print(f"  {WHITE}[ PART ]  {t.name}  freed {fmt_size(freed)}, "
                   f"{failed} files in use skipped{RESET}")
 
     return True, freed_total, cleaned
