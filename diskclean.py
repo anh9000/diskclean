@@ -187,28 +187,51 @@ def dir_size(paths):
     return total
 
 
-def dir_size_live(paths, label):
-    """Total size with a live progress line so a big folder is not silent."""
-    total = 0.0
+def _clear_line():
+    cols = shutil.get_terminal_size((80, 20)).columns
+    sys.stdout.write("\r" + (" " * (cols - 1)) + "\r")
+    sys.stdout.flush()
+
+
+def dir_size_live(paths, label, idx=None, total=None):
+    """Total size with a live display. When idx and total are given it shows a
+    progress bar for the outer scan (item idx of total) with the current item's
+    running size, so scanning looks like a loading bar. Otherwise it shows a
+    plain status line (used for single item scans)."""
+    nbytes = 0.0
     count = 0
     start = time.monotonic()
+    bar_w = 18
+
+    def render():
+        el = int(time.monotonic() - start)
+        if total:
+            frac = min(1.0, idx / total)
+            filled = int(round(bar_w * frac))
+            bar = BLOCK_FULL * filled + BLOCK_EMPTY * (bar_w - filled)
+            name = label if len(label) <= 20 else label[:19] + "~"
+            line = (f"  {FG}[{FG_HOT}{bar}{FG}] {int(frac * 100):3d}% | {idx}/{total} | "
+                    f"{name} | {fmt_size(nbytes)} | {el}s{RESET}")
+        else:
+            line = f"  {FG_DIM}scanning {label}  {count:,} files  {fmt_size(nbytes)}  {el}s{RESET}"
+        sys.stdout.write("\r" + line + "    ")
+        sys.stdout.flush()
+
+    render()
     for p in paths:
         if not os.path.exists(p):
             continue
         for f in iter_files(p):
             try:
-                total += os.path.getsize(f)
+                nbytes += os.path.getsize(f)
             except OSError:
                 continue
             count += 1
-            if count % 800 == 0:
-                el = int(time.monotonic() - start)
-                msg = f"  scanning {label}  {count:,} files  {fmt_size(total)}  {el}s"
-                sys.stdout.write("\r" + FG_DIM + msg[:WIDTH + 30] + RESET + "    ")
-                sys.stdout.flush()
-    sys.stdout.write("\r" + (" " * (WIDTH + 40)) + "\r")
-    sys.stdout.flush()
-    return total
+            if count % 600 == 0:
+                render()
+    render()
+    _clear_line()
+    return nbytes
 
 
 def clear_paths(paths, label):
@@ -415,7 +438,7 @@ def drive_overview(root):
     rows = []
     n = len(entries)
     for i, e in enumerate(entries, 1):
-        sz = dir_size_live([e.path], f"[{i}/{n}] {e.name}")
+        sz = dir_size_live([e.path], e.name, i, n)
         rows.append((e.name, sz))
         print(f"  {FG_DIM}{e.name.ljust(28)}{fmt_size(sz).rjust(10)}{RESET}")
     print()
@@ -681,8 +704,8 @@ def run_once(admin):
     print()
 
     targets = get_targets()
-    for t in targets:
-        t.size = dir_size_live(t.paths, t.name)
+    for i, t in enumerate(targets, 1):
+        t.size = dir_size_live(t.paths, t.name, i, len(targets))
         flag = ""
         if t.needs_priv and not admin:
             flag = GREY + "  (needs admin)" + RESET
