@@ -59,18 +59,20 @@ RESET = "\033[0m"
 WIDTH = 64
 
 BANNER = r"""
-     _ _      _        _
-  __| (_)___ | | _____| | ___  __ _ _ __
- / _` | / __|| |/ / __| |/ _ \/ _` | '_ \
-| (_| | \__ \|   < (__| |  __/ (_| | | | |
- \__,_|_|___/|_|\_\___|_|\___|\__,_|_| |_|
+    __ __         __          __
+.--|  |__|.-----.|  |--.----.|  |.-----.---.-.-----.
+|  _  |  ||__ --||    <|  __||  ||  -__|  _  |     |
+|_____|__||_____||__|__|____||__||_____|___._|__|__|
 """
 
 
 def banner():
+    print()
     for line in BANNER.strip("\n").splitlines():
-        print(FG_HOT + line + RESET)
+        print(FG_HOT + "  " + line + RESET)
+    print()
     print(FG_DIM + "  portable disk cache and temp cleaner" + RESET)
+    print()
 
 
 def rule():
