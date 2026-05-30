@@ -1,5 +1,7 @@
 # diskclean
 
+![diskclean](docs/social.png)
+
 A portable, cross platform disk cache and temp cleaner for the terminal. It scans the known safe cache and temp locations on your computer, shows their sizes, lets you pick what to remove, and cleans with a live progress bar that shows elapsed time and ETA.
 
 Works on Windows, macOS, and Linux. No dependencies. No installer. Just run it.
