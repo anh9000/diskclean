@@ -6,7 +6,7 @@ Works on Windows, macOS, and Linux. No dependencies. No installer. Just run it.
 
 ## Why I made this
 
-I made this as a personal tool to speedrun cleaning my disk. One day I was too late opening the built-in Disk Cleanup, so I built my own thing to quickly scan and tell me what is safe to delete. I was in the mood for some terminal aesthetics, so I built it around that.
+I made this as a personal tool to speedrun cleaning my disk. One day I was too lazy to open the built-in Disk Cleanup, so I built my own thing to quickly scan and tell me what is safe to delete. I was in the mood for some terminal aesthetics, so I built it around that.
 
 Cache and temp folders quietly grow over time (browser caches, app caches, package caches, crash dumps, trash). diskclean finds the safe ones, tells you how much space each is using, and clears only what you choose.
 
