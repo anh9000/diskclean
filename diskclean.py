@@ -620,6 +620,30 @@ def get_drives():
     return out
 
 
+def show_leftovers(root):
+    base = Path(root)
+    items = [
+        ("Windows.old (previous Windows)", base / "Windows.old"),
+        ("Upgrade staging BT", base / "$WINDOWS.~BT"),
+        ("Upgrade staging WS", base / "$WINDOWS.~WS"),
+        ("Windows Update download cache", base / "Windows" / "SoftwareDistribution" / "Download"),
+    ]
+    print()
+    say("Windows upgrade leftovers:", WHITE)
+    found = False
+    for name, path in items:
+        if not path.exists():
+            continue
+        sz = dir_size_live([str(path)], name)
+        if sz > 100 * 1024 * 1024:
+            found = True
+            print(f"  {FG}{name.ljust(34)}{FG_HOT}{fmt_size(sz).rjust(10)}{RESET}")
+    if found:
+        dim("Report only. Remove these safely with Windows Disk Cleanup (Clean up system files).")
+    else:
+        dim("None found. Old Windows files were already removed.")
+
+
 def drive_overview(root):
     print()
     bar_title("DRIVE OVERVIEW  " + root)
@@ -642,6 +666,8 @@ def drive_overview(root):
     say("Largest folders:", WHITE)
     for name, sz in sorted(rows, key=lambda r: r[1], reverse=True)[:12]:
         print(f"  {FG}{name.ljust(28)}{FG_HOT}{fmt_size(sz).rjust(10)}{RESET}")
+    if platform.system() == "Windows" and os.path.exists(os.path.join(root, "Windows")):
+        show_leftovers(root)
     print()
     rule()
     dim("This is only a view of where space is. Nothing was deleted.")
