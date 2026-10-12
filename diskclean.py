@@ -917,6 +917,131 @@ def scan_one(name, admin):
     return freed, target.name
 
 
+PROTECTED_NAMES = {"windows", "system32", "program files", "program files (x86)", "programdata",
+                   "users", "bin", "boot", "etc", "usr", "var", "lib", "sbin", "system", "library"}
+
+
+def _protected_root(path):
+    low = os.path.normcase(path)
+    if os.name == "nt":
+        drive = os.path.splitdrive(low)[0] + os.sep
+        for sub in ("windows", "program files", "program files (x86)", "programdata"):
+            if low.startswith(os.path.join(drive, sub)):
+                return True
+    else:
+        for sub in ("/bin", "/boot", "/etc", "/lib", "/sbin", "/usr", "/System", "/Library", "/proc", "/sys", "/dev"):
+            if low == sub or low.startswith(sub + os.sep):
+                return True
+    return False
+
+
+def find_folders(roots, name):
+    """Return every folder named exactly `name` (case insensitive) under the roots.
+    Matches are not searched inside, symlinks are not followed."""
+    want = name.lower()
+    hits = []
+    count = [0]
+    for root in roots:
+        stack = [root]
+        while stack:
+            cur = stack.pop()
+            if _protected_root(cur):
+                continue
+            try:
+                with os.scandir(cur) as it:
+                    for e in it:
+                        try:
+                            if e.is_symlink() or not e.is_dir(follow_symlinks=False):
+                                continue
+                        except OSError:
+                            continue
+                        count[0] += 1
+                        if count[0] % 200 == 0:
+                            sys.stdout.write(chr(13) + FG_DIM + "  searching " + cur[:60].ljust(60) + RESET)
+                            sys.stdout.flush()
+                        if e.name.lower() == want:
+                            hits.append(e.path)
+                        else:
+                            stack.append(e.path)
+            except OSError:
+                continue
+    _clear_line()
+    return hits
+
+
+def find_folder_cmd(name):
+    name = name.strip().strip('"').strip()
+    if not name or any(c in name for c in chr(92) + "/"):
+        dim("Type just a folder name, for example: find preview-cache")
+        return 0, None
+    if name.lower() in PROTECTED_NAMES:
+        say("That name is protected and will not be searched.", FG_HOT)
+        return 0, None
+
+    drives = [d for d in get_drives() if not d.cloud]
+    if not drives:
+        dim("No scannable drives found.")
+        return 0, None
+    print()
+    bar_title("FIND FOLDER  " + name)
+    for i, d in enumerate(drives, 1):
+        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {d.label.ljust(14)}{fmt_size(d.free)} free of {fmt_size(d.total)}{RESET}")
+    print(f"  {FG_HOT}all.{FG} every drive above{RESET}")
+    print()
+    ans = ask("Where to search (number, all, or Enter to cancel)").strip().lower()
+    if ans == "all":
+        roots = [d.root for d in drives]
+    elif ans.isdigit() and 1 <= int(ans) <= len(drives):
+        roots = [drives[int(ans) - 1].root]
+    else:
+        dim("Cancelled.")
+        return 0, None
+
+    say("Searching, this can take a few minutes on a large drive.")
+    hits = find_folders(roots, name)
+    if not hits:
+        say(f"No folder named {name} found.")
+        return 0, None
+
+    rows = []
+    for i, h in enumerate(hits, 1):
+        rows.append((h, dir_size_live([h], h[-40:], i, len(hits))))
+    rows.sort(key=lambda r: r[1], reverse=True)
+    total = sum(r[1] for r in rows)
+    print()
+    say(f"Found {len(rows)} folders named {name}, {fmt_size(total)} in total:", WHITE)
+    for i, (h, sz) in enumerate(rows, 1):
+        print(f"  {FG_HOT}{str(i).rjust(3)}.{FG} {fmt_size(sz).rjust(10)}  {h}{RESET}")
+    print()
+    if total == 0:
+        dim("All empty. Nothing to free.")
+        return 0, None
+    sel = ask("Delete which? (numbers, 1,3,5, 2-6, all, or Enter to skip)")
+    picked = parse_selection(sel, len(rows))
+    if not picked:
+        dim("Skipped. Nothing was deleted.")
+        return 0, None
+    chosen = [rows[i - 1] for i in picked]
+    chosen_size = sum(r[1] for r in chosen)
+    say("This permanently deletes these folders and everything inside. No recycle bin.", FG_HOT)
+    for h, sz in chosen:
+        dim(f"{fmt_size(sz).rjust(10)}  {h}")
+    if not ask_yesno(f"Delete {len(chosen)} folders ({fmt_size(chosen_size)})?"):
+        dim("Skipped. Nothing was deleted.")
+        return 0, None
+
+    freed = 0
+    for h, _sz in chosen:
+        f, failed = clear_paths([h], h[-40:])
+        freed += f
+        try:
+            os.rmdir(h)
+            print(f"  {FG_HOT}[ DONE ]  {FG}{h}  freed {fmt_size(f)}{RESET}")
+        except OSError:
+            print(f"  {WHITE}[ PART ]  {h}  freed {fmt_size(f)}, {failed} files in use skipped{RESET}")
+    return freed, "folder: " + name
+
+
 def run_once(admin):
     rule()
     bar_title("SCAN")
@@ -1050,6 +1175,7 @@ def main():
         dim("scan <app>   clean one app cache by name (example: scan discord)")
         dim("all          scan all safe cache and temp locations")
         dim("age <days>   only clean items older than N days (age off to clear)")
+        dim("find <name>  find every folder with that name, see its size, delete")
         dim("drives       pick a drive to see where its space is used")
         dim("apps         list the apps you can scan by name")
         dim("q            quit")
@@ -1075,6 +1201,12 @@ def main():
         elif low == "age" or low.startswith("age "):
             print()
             set_age(cmd[3:])
+        elif low == "find":
+            dim("Type the folder name too, for example: find preview-cache")
+        elif low.startswith("find "):
+            freed, cleaned = find_folder_cmd(cmd[5:])
+            if cleaned:
+                _finish(freed, [cleaned])
         elif low == "scan":
             dim("Type the app name too, for example: scan discord")
         elif low.startswith("scan "):
@@ -1082,7 +1214,7 @@ def main():
             if cleaned:
                 _finish(freed, [cleaned])
         else:
-            dim("Unknown command. Try: scan <app>, all, age <days>, drives, apps, or q.")
+            dim("Unknown command. Try: scan <app>, find <name>, all, age <days>, drives, apps, or q.")
         print()
 
     print()
