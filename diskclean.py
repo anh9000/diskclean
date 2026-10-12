@@ -941,8 +941,11 @@ def find_folders(roots, name):
     Matches are not searched inside, symlinks are not followed."""
     want = name.lower()
     hits = []
-    count = [0]
-    for root in roots:
+    count = 0
+    t0 = time.time()
+    last = 0.0
+    cols = shutil.get_terminal_size((80, 20)).columns
+    for ri, root in enumerate(roots, 1):
         stack = [root]
         while stack:
             cur = stack.pop()
@@ -956,9 +959,13 @@ def find_folders(roots, name):
                                 continue
                         except OSError:
                             continue
-                        count[0] += 1
-                        if count[0] % 200 == 0:
-                            sys.stdout.write(chr(13) + FG_DIM + "  searching " + cur[:60].ljust(60) + RESET)
+                        count += 1
+                        now = time.time()
+                        if now - last > 0.15:
+                            last = now
+                            head = f"  {root[:3]} ({ri}/{len(roots)}) | {count:,} folders | {len(hits)} found | {fmt_time(now - t0)} | "
+                            room = max(10, cols - len(head) - 1)
+                            sys.stdout.write(chr(13) + FG_DIM + (head + cur[-room:]).ljust(cols - 1) + RESET)
                             sys.stdout.flush()
                         if e.name.lower() == want:
                             hits.append(e.path)
@@ -967,6 +974,7 @@ def find_folders(roots, name):
             except OSError:
                 continue
     _clear_line()
+    dim(f"Searched {count:,} folders in {fmt_time(time.time() - t0)}.")
     return hits
 
 
