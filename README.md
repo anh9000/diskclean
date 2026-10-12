@@ -26,6 +26,7 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 - Per item result after cleaning: done, partial, or skipped
 - A timestamped history log so you can see your last runs and how space changed
 - Pick a drive to see a read-only overview of where its space is used. Cloud and network mounts (Google Drive, rclone, network shares) are detected and skipped so it does not crawl them
+- On Windows, the C: drive overview also reports upgrade leftovers (Windows.old, upgrade staging folders, Windows Update download cache) with their sizes. Report only, it deletes nothing
 - Cross platform: it knows the right cache locations for Windows, macOS, and Linux
 
 ## Commands
