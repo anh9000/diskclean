@@ -20,6 +20,8 @@ import json
 import shutil
 import subprocess
 import platform
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime
 
@@ -936,67 +938,89 @@ def _protected_root(path):
     return False
 
 
+SKIP_DIRS = {"$recycle.bin", "system volume information", ".git", "node_modules"}
+
+
 def find_folders(roots, name):
     """Return every folder named exactly `name` (case insensitive) under the roots.
     Matches are not searched inside, symlinks are not followed."""
     want = name.lower()
     hits = []
-    count = 0
+    state = {"count": 0, "cur": "", "done": 0}
+    lock = threading.Lock()
     t0 = time.time()
-    last = 0.0
     cols = shutil.get_terminal_size((80, 20)).columns
-    units = []
-    for ri, root in enumerate(roots, 1):
+
+    def subdirs(path):
+        out = []
         try:
-            with os.scandir(root) as it:
+            with os.scandir(path) as it:
                 for e in it:
                     try:
                         if e.is_symlink() or not e.is_dir(follow_symlinks=False):
                             continue
                     except OSError:
                         continue
-                    if e.name.lower() == want:
-                        hits.append(e.path)
-                    else:
-                        units.append((ri, root, e.path))
+                    out.append((e.name, e.path))
         except OSError:
-            continue
-    done = 0
-    for ri, root, start in units:
+            pass
+        return out
+
+    units = []
+    for root in roots:
+        for n, pth in subdirs(root):
+            low = n.lower()
+            if low == want:
+                hits.append(pth)
+            elif low not in SKIP_DIRS:
+                units.append((root, pth))
+
+    def walk(start):
+        found = []
         stack = [start]
+        n = 0
         while stack:
             cur = stack.pop()
             if _protected_root(cur):
                 continue
-            try:
-                with os.scandir(cur) as it:
-                    for e in it:
-                        try:
-                            if e.is_symlink() or not e.is_dir(follow_symlinks=False):
-                                continue
-                        except OSError:
-                            continue
-                        count += 1
-                        now = time.time()
-                        if now - last > 0.15:
-                            last = now
-                            frac = done / max(1, len(units))
-                            filled = int(round(20 * frac))
-                            pbar = BLOCK_FULL * filled + BLOCK_EMPTY * (20 - filled)
-                            head = f"  {root[:3]} [{pbar}] {int(frac * 100):3d}% | {count:,} folders | {len(hits)} found | {fmt_time(now - t0)} | "
-                            room = max(10, cols - len(head) - 1)
-                            sys.stdout.write(chr(13) + FG_DIM + (head + cur[-room:]).ljust(cols - 1) + RESET)
-                            sys.stdout.flush()
-                        if e.name.lower() == want:
-                            hits.append(e.path)
-                        else:
-                            stack.append(e.path)
-            except OSError:
-                continue
-        done += 1
+            state["cur"] = cur
+            for nm, pth in subdirs(cur):
+                n += 1
+                low = nm.lower()
+                if low == want:
+                    found.append(pth)
+                elif low not in SKIP_DIRS:
+                    stack.append(pth)
+            if n >= 200:
+                with lock:
+                    state["count"] += n
+                n = 0
+        with lock:
+            state["count"] += n
+            state["done"] += 1
+            hits.extend(found)
+
+    root_label = roots[0][:3] if len(roots) == 1 else "all"
+    pool = ThreadPoolExecutor(max_workers=8)
+    futures = [pool.submit(walk, st) for _, st in units]
+    try:
+        while True:
+            finished = all(f.done() for f in futures)
+            frac = state["done"] / max(1, len(units))
+            filled = int(round(20 * frac))
+            pbar = BLOCK_FULL * filled + BLOCK_EMPTY * (20 - filled)
+            head = f"  {root_label} [{pbar}] {int(frac * 100):3d}% | {state['count']:,} folders | {len(hits)} found | {fmt_time(time.time() - t0)} | "
+            room = max(10, cols - len(head) - 1)
+            sys.stdout.write(chr(13) + FG_DIM + (head + state["cur"][-room:]).ljust(cols - 1) + RESET)
+            sys.stdout.flush()
+            if finished:
+                break
+            time.sleep(0.15)
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
     _clear_line()
-    dim(f"Searched {count:,} folders in {fmt_time(time.time() - t0)}.")
-    return hits
+    dim(f"Searched {state['count']:,} folders in {fmt_time(time.time() - t0)}.")
+    return sorted(hits)
 
 
 def find_folder_cmd(name):
