@@ -555,8 +555,9 @@ def is_admin():
 # drive detection and read only overview
 # ---------------------------------------------------------------------------
 class Drive:
-    def __init__(self, label, root, free, total, cloud):
+    def __init__(self, label, root, free, total, cloud, name=""):
         self.label = label
+        self.name = name
         self.root = root
         self.free = free
         self.total = total
@@ -599,7 +600,7 @@ def get_drives():
             cloud = (u.total > cloud_limit or dtype == 4
                      or any(m in fs.lower() for m in ("fuse", "rclone", "dokan"))
                      or "@" in label)
-            out.append(Drive(letter, root, u.free, u.total, cloud))
+            out.append(Drive(letter, root, u.free, u.total, cloud, label))
     else:
         roots = ["/"]
         for base in ("/Volumes", "/media", "/mnt"):
@@ -683,10 +684,10 @@ def offer_drive_overview():
     selectable = [d for d in drives if not d.cloud]
     for i, d in enumerate(selectable, 1):
         info = f"{fmt_size(d.free)} free of {fmt_size(d.total)}"
-        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {d.label.ljust(14)}{info}{RESET}")
+        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {(d.label + ('  ' + d.name if d.name else '')).ljust(30)}{info}{RESET}")
     for d in drives:
         if d.cloud:
-            print(f"  {GREY}    {d.label.ljust(14)}cloud or network, not scannable here{RESET}")
+            print(f"  {GREY}    {(d.label + ('  ' + d.name if d.name else '')).ljust(30)}cloud or network, not scannable here{RESET}")
     print()
     ans = ask("Drive to scan for an overview (number, or Enter to skip)").strip()
     if ans.isdigit():
@@ -985,7 +986,7 @@ def find_folder_cmd(name):
     print()
     bar_title("FIND FOLDER  " + name)
     for i, d in enumerate(drives, 1):
-        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {d.label.ljust(14)}{fmt_size(d.free)} free of {fmt_size(d.total)}{RESET}")
+        print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {(d.label + ('  ' + d.name if d.name else '')).ljust(30)}{fmt_size(d.free)} free of {fmt_size(d.total)}{RESET}")
     print(f"  {FG_HOT}all.{FG} every drive above{RESET}")
     print()
     ans = ask("Where to search (number, all, or Enter to cancel)").strip().lower()
