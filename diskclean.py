@@ -945,8 +945,25 @@ def find_folders(roots, name):
     t0 = time.time()
     last = 0.0
     cols = shutil.get_terminal_size((80, 20)).columns
+    units = []
     for ri, root in enumerate(roots, 1):
-        stack = [root]
+        try:
+            with os.scandir(root) as it:
+                for e in it:
+                    try:
+                        if e.is_symlink() or not e.is_dir(follow_symlinks=False):
+                            continue
+                    except OSError:
+                        continue
+                    if e.name.lower() == want:
+                        hits.append(e.path)
+                    else:
+                        units.append((ri, root, e.path))
+        except OSError:
+            continue
+    done = 0
+    for ri, root, start in units:
+        stack = [start]
         while stack:
             cur = stack.pop()
             if _protected_root(cur):
@@ -963,7 +980,10 @@ def find_folders(roots, name):
                         now = time.time()
                         if now - last > 0.15:
                             last = now
-                            head = f"  {root[:3]} ({ri}/{len(roots)}) | {count:,} folders | {len(hits)} found | {fmt_time(now - t0)} | "
+                            frac = done / max(1, len(units))
+                            filled = int(round(20 * frac))
+                            pbar = BLOCK_FULL * filled + BLOCK_EMPTY * (20 - filled)
+                            head = f"  {root[:3]} [{pbar}] {int(frac * 100):3d}% | {count:,} folders | {len(hits)} found | {fmt_time(now - t0)} | "
                             room = max(10, cols - len(head) - 1)
                             sys.stdout.write(chr(13) + FG_DIM + (head + cur[-room:]).ljust(cols - 1) + RESET)
                             sys.stdout.flush()
@@ -973,6 +993,7 @@ def find_folders(roots, name):
                             stack.append(e.path)
             except OSError:
                 continue
+        done += 1
     _clear_line()
     dim(f"Searched {count:,} folders in {fmt_time(time.time() - t0)}.")
     return hits
