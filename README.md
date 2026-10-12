@@ -15,6 +15,7 @@ Cache and temp folders quietly grow over time (browser caches, app caches, packa
 ## Features
 
 - Pure Python, zero dependencies, runs anywhere Python runs
+- Windows extras: Google Drive and CapCut caches, Slack cache, and an optional hibernation file removal. Apps that must be closed are flagged and skipped while running
 - A command prompt: type `scan discord` (or any app) and it finds that app's cache for your OS and offers to clean it. Great for a quick one app speedrun.
 - Browser caches across every profile, not just the default one, for Chrome, Edge, Brave, Opera, Opera GX, Vivaldi, Chromium, and Firefox
 - Optional age filter: clean only items older than a number of days you set, so recent files are left alone
@@ -44,7 +45,7 @@ In the `all` menu you choose what to clean by number. You can type a single numb
 
 `scan <app>` matches the app name to a known cache location for your operating system, so `scan discord` looks in the right place on Windows, macOS, and Linux. It only ever touches that app's cache folders, never its settings or login. If the app is not installed, or it is a sandboxed build such as a Linux Flatpak or Snap, it reports nothing to clean instead of touching anything else.
 
-Apps you can scan by name include Discord, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, and npm, plus browsers (Chrome, Edge, Brave, Opera, Opera GX, Vivaldi, Chromium, and Firefox) which are cleaned across every profile. The list adapts to your operating system and shows only what is installed, so type `apps` to see your set.
+Apps you can scan by name include Discord, Spotify, Slack, Teams, VS Code, Steam, NVIDIA, pip, npm, CapCut, and Google Drive (Windows), plus browsers (Chrome, Edge, Brave, Opera, Opera GX, Vivaldi, Chromium, and Firefox) which are cleaned across every profile. The list adapts to your operating system and shows only what is installed, so type `apps` to see your set.
 
 ## Safety
 
@@ -64,7 +65,7 @@ macOS and Linux: run `./diskclean.sh`, or `python3 diskclean.py`. Make the scrip
 
 ## What it cleans
 
-Windows: user temp, Windows temp, crash dumps, pip cache, NVIDIA shader cache, Spotify cache, Discord cache, and every installed browser's cache across all profiles (Chrome, Edge, Brave, Opera, Vivaldi, Firefox).
+Windows: user temp, Windows temp, crash dumps, pip cache, NVIDIA shader cache, Spotify cache, Discord cache, Slack cache, CapCut cache, Google Drive cache (skipped while Google Drive is running), the hibernation file (turned off with powercfg, needs admin, undo with `powercfg /hibernate on`), and every installed browser's cache across all profiles (Chrome, Edge, Brave, Opera, Vivaldi, Firefox).
 
 macOS: user Library caches (which already includes browser caches), user logs, Trash, pip cache.
 

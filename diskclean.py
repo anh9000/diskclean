@@ -18,6 +18,7 @@ import sys
 import time
 import json
 import shutil
+import subprocess
 import platform
 from pathlib import Path
 from datetime import datetime
@@ -300,11 +301,13 @@ def _remove_empty_dirs(path):
 # cross platform target list (the safe allowlist)
 # ---------------------------------------------------------------------------
 class Target:
-    def __init__(self, name, paths, desc, needs_priv=False):
+    def __init__(self, name, paths, desc, needs_priv=False, blocker=None, kind="dir"):
         self.name = name
         self.paths = [str(p) for p in paths]
         self.desc = desc
         self.needs_priv = needs_priv
+        self.blocker = blocker
+        self.kind = kind
         self.size = 0
 
 
@@ -425,6 +428,60 @@ def browser_caches():
     return out
 
 
+def process_running(name):
+    if platform.system() != "Windows":
+        return False
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq " + name + ".exe"],
+                             capture_output=True, text=True, timeout=15).stdout
+        return name.lower() in out.lower()
+    except Exception:
+        return False
+
+
+def drive_content_caches(base):
+    found = []
+    try:
+        for d in Path(base).iterdir():
+            c = d / "content_cache"
+            if d.is_dir() and c.is_dir():
+                found.append(c)
+    except OSError:
+        pass
+    return found
+
+
+def hiber_size():
+    try:
+        return os.stat("C:/hiberfil.sys").st_size
+    except OSError:
+        return 0
+
+
+def target_size(t, idx, total):
+    if t.kind == "hibernate":
+        return hiber_size()
+    return dir_size_live(t.paths, t.name, idx, total, min_age_days=OPTS["age_days"])
+
+
+def target_flag(t, admin):
+    if t.needs_priv and not admin:
+        return GREY + "  (needs admin)" + RESET
+    if t.blocker and process_running(t.blocker):
+        return GREY + "  (quit " + t.blocker + " first)" + RESET
+    return ""
+
+
+def clean_target(t):
+    if t.kind == "hibernate":
+        before = hiber_size()
+        subprocess.run(["powercfg", "/hibernate", "off"], capture_output=True)
+        time.sleep(0.6)
+        after = hiber_size()
+        return max(before - after, 0), (1 if after else 0)
+    return clear_paths(t.paths, t.name, min_age_days=OPTS["age_days"])
+
+
 def get_targets():
     sysname = platform.system()
     home = Path.home()
@@ -446,6 +503,16 @@ def get_targets():
                    "Cached and offline song data.", False),
             Target("Discord cache", [ra / "discord" / "Cache", ra / "discord" / "Code Cache",
                                      ra / "discord" / "GPUCache"], "Discord media cache.", False),
+            Target("Slack cache", [ra / "Slack" / "Cache", ra / "Slack" / "Service Worker" / "CacheStorage"],
+                   "Slack cache.", False),
+            Target("CapCut cache", [la / "CapCut" / "User Data" / "Cache"],
+                   "CapCut editing cache. Saved projects are kept.", False),
+            Target("Google Drive cache", drive_content_caches(la / "Google" / "DriveFS"),
+                   "Cached local copies of Drive files. Cloud files are not affected. Quit Google Drive first.",
+                   False, "GoogleDriveFS"),
+            Target("Hibernation file", ["C:/hiberfil.sys"],
+                   "Space reserved for Hibernate. Turned off with powercfg, undo with powercfg /hibernate on.",
+                   True, None, "hibernate"),
         ]
 
     elif sysname == "Darwin":
@@ -737,6 +804,10 @@ def app_catalog():
         [], [home / ".nv" / "GLCache"])
     add("pip", "Python pip cache.",
         [la / "pip" / "cache"], [lib / "Caches" / "pip"], [cache / "pip"])
+    add("capcut", "CapCut editing cache. Saved projects are kept.",
+        [la / "CapCut" / "User Data" / "Cache"], [], [])
+    add("googledrive", "Google Drive cached file copies. Cloud files are not affected.",
+        drive_content_caches(la / "Google" / "DriveFS"), [], [])
     add("npm", "Node npm cache.",
         [ra / "npm-cache"], [home / ".npm" / "_cacache"], [home / ".npm" / "_cacache"])
 
@@ -788,6 +859,10 @@ def scan_one(name, admin):
             list_apps()
         return 0, None
 
+    if key == "googledrive" and process_running("GoogleDriveFS"):
+        say("Google Drive is running. Quit it first, then scan again.", FG_HOT)
+        return 0, None
+
     print()
     bar_title("SCAN  " + target.name)
     if OPTS["age_days"]:
@@ -826,10 +901,8 @@ def run_once(admin):
 
     targets = get_targets()
     for i, t in enumerate(targets, 1):
-        t.size = dir_size_live(t.paths, t.name, i, len(targets), min_age_days=OPTS["age_days"])
-        flag = ""
-        if t.needs_priv and not admin:
-            flag = GREY + "  (needs admin)" + RESET
+        t.size = target_size(t, i, len(targets))
+        flag = target_flag(t, admin)
         print(f"  {FG}{t.name.ljust(22)}{FG_HOT}{fmt_size(t.size).rjust(10)}{RESET}{flag}")
 
     cleanable = sorted([t for t in targets if t.size > 0],
@@ -851,9 +924,7 @@ def run_once(admin):
     dim("Type the numbers you want. Examples: 1,3,5 or 2-6 or all. q to skip.")
     print()
     for i, t in enumerate(cleanable, 1):
-        flag = ""
-        if t.needs_priv and not admin:
-            flag = GREY + "  (needs admin)" + RESET
+        flag = target_flag(t, admin)
         print(f"  {FG_HOT}{str(i).rjust(2)}.{FG} {t.name.ljust(22)}"
               f"{fmt_size(t.size).rjust(10)}{RESET}{flag}")
     print()
@@ -887,7 +958,10 @@ def run_once(admin):
         if t.needs_priv and not admin:
             print(f"  {GREY}[ SKIP ]  {t.name}  needs admin{RESET}")
             continue
-        freed, failed = clear_paths(t.paths, t.name, min_age_days=OPTS["age_days"])
+        if t.blocker and process_running(t.blocker):
+            print(f"  {GREY}[ SKIP ]  {t.name}  {t.blocker} is running{RESET}")
+            continue
+        freed, failed = clean_target(t)
         freed_total += freed
         cleaned.append(t.name)
         if failed == 0:
