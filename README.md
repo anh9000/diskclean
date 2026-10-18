@@ -39,6 +39,7 @@ diskclean opens to a command prompt. These are the commands it accepts:
 | `all` | Scan every safe cache and temp location, then pick what to clean from a numbered menu sorted largest first, with the total reclaimable shown at the top. |
 | `age <days>` | Only scan and clean items older than N days, for example `age 30`. Type `age off` to clear it. |
 | `find <name>` | Find every folder with that exact name (case insensitive) on one drive or all drives, show each size and the total, then choose which to delete. Windows, Program Files, ProgramData and system folders are skipped. |
+| `gdrive [folder]` | Find a Google Drive cache you moved to another drive. With no folder it searches your drives and remembers what it finds. With a folder it saves that location. Found locations are included in `scan googledrive` and `all`. |
 | `drives` | Pick a drive to see a read only overview of where its space is used. Nothing here is deleted. |
 | `apps` | List the apps you can scan by name. |
 | `q` | Quit. |

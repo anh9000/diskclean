@@ -4,3 +4,4 @@ __pycache__/
 diskclean_history.log
 .DS_Store
 Thumbs.db
+diskclean_config.json

@@ -453,6 +453,119 @@ def drive_content_caches(base):
     return found
 
 
+def config_path():
+    return Path(__file__).resolve().parent / "diskclean_config.json"
+
+
+def load_config():
+    try:
+        with open(config_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_config(cfg):
+    try:
+        with open(config_path(), "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+        return True
+    except OSError:
+        return False
+
+
+def detect_gdrive_roots(max_depth=3):
+    found = []
+    for d in get_drives():
+        if d.cloud:
+            continue
+        stack = [(d.root, 0)]
+        while stack:
+            cur, depth = stack.pop()
+            if _protected_root(cur):
+                continue
+            if drive_content_caches(cur):
+                found.append(cur)
+                continue
+            if depth >= max_depth:
+                continue
+            try:
+                with os.scandir(cur) as it:
+                    for e in it:
+                        try:
+                            if e.is_symlink() or not e.is_dir(follow_symlinks=False):
+                                continue
+                        except OSError:
+                            continue
+                        if e.name.lower() not in SKIP_DIRS:
+                            stack.append((e.path, depth + 1))
+            except OSError:
+                continue
+    return found
+
+
+def normalize_gdrive_root(path):
+    p = Path(path.strip().strip('"').strip())
+    if p.name.lower() == "content_cache" and p.is_dir():
+        p = p.parent.parent
+    elif (p / "content_cache").is_dir():
+        p = p.parent
+    if drive_content_caches(p):
+        return str(p)
+    return None
+
+
+def gdrive_roots(refresh=False):
+    cfg = load_config()
+    saved = [r for r in cfg.get("gdrive_roots", []) if drive_content_caches(r)]
+    if refresh or not cfg.get("gdrive_checked"):
+        if not refresh:
+            dim("One time setup: looking for a moved Google Drive cache folder...")
+        for r in detect_gdrive_roots():
+            if r not in saved:
+                saved.append(r)
+        cfg["gdrive_checked"] = True
+    cfg["gdrive_roots"] = saved
+    save_config(cfg)
+    return saved
+
+
+def gdrive_caches(default_base):
+    caches = drive_content_caches(default_base)
+    seen = {os.path.normcase(str(c)) for c in caches}
+    for r in gdrive_roots():
+        for c in drive_content_caches(r):
+            if os.path.normcase(str(c)) not in seen:
+                seen.add(os.path.normcase(str(c)))
+                caches.append(c)
+    return caches
+
+
+def gdrive_cmd(arg):
+    arg = arg.strip()
+    if not arg:
+        say("Searching your drives for Google Drive cache folders...", WHITE)
+        roots = gdrive_roots(refresh=True)
+        if not roots:
+            dim("None found outside the default location. Use: gdrive <folder>")
+        for r in roots:
+            dim("Found: " + r)
+        return
+    root = normalize_gdrive_root(arg)
+    if not root:
+        say("No content_cache folder found there. Point to the folder that holds your account id folder.", FG_HOT)
+        return
+    cfg = load_config()
+    roots = cfg.get("gdrive_roots", [])
+    if root not in roots:
+        roots.append(root)
+    cfg["gdrive_roots"] = roots
+    cfg["gdrive_checked"] = True
+    save_config(cfg)
+    say("Saved Google Drive cache location: " + root, WHITE)
+
+
 def hiber_size():
     try:
         return os.stat("C:/hiberfil.sys").st_size
@@ -509,7 +622,7 @@ def get_targets():
                    "Slack cache.", False),
             Target("CapCut cache", [la / "CapCut" / "User Data" / "Cache"],
                    "CapCut editing cache. Saved projects are kept.", False),
-            Target("Google Drive cache", drive_content_caches(la / "Google" / "DriveFS"),
+            Target("Google Drive cache", gdrive_caches(la / "Google" / "DriveFS"),
                    "Cached local copies of Drive files. Cloud files are not affected. Quit Google Drive first.",
                    False, "GoogleDriveFS"),
             Target("Hibernation file", ["C:/hiberfil.sys"],
@@ -836,7 +949,7 @@ def app_catalog():
     add("capcut", "CapCut editing cache. Saved projects are kept.",
         [la / "CapCut" / "User Data" / "Cache"], [], [])
     add("googledrive", "Google Drive cached file copies. Cloud files are not affected.",
-        drive_content_caches(la / "Google" / "DriveFS"), [], [])
+        gdrive_caches(la / "Google" / "DriveFS"), [], [])
     add("npm", "Node npm cache.",
         [ra / "npm-cache"], [home / ".npm" / "_cacache"], [home / ".npm" / "_cacache"])
 
@@ -1230,6 +1343,7 @@ def main():
         dim("all          scan all safe cache and temp locations")
         dim("age <days>   only clean items older than N days (age off to clear)")
         dim("find <name>  find every folder with that name, see its size, delete")
+        dim("gdrive       find or set a moved Google Drive cache folder (gdrive <folder>)")
         dim("drives       pick a drive to see where its space is used")
         dim("apps         list the apps you can scan by name")
         dim("q            quit")
@@ -1261,6 +1375,9 @@ def main():
             freed, cleaned = find_folder_cmd(cmd[5:])
             if cleaned:
                 _finish(freed, [cleaned])
+        elif low == "gdrive" or low.startswith("gdrive "):
+            print()
+            gdrive_cmd(cmd[6:])
         elif low == "scan":
             dim("Type the app name too, for example: scan discord")
         elif low.startswith("scan "):
@@ -1268,7 +1385,7 @@ def main():
             if cleaned:
                 _finish(freed, [cleaned])
         else:
-            dim("Unknown command. Try: scan <app>, find <name>, all, age <days>, drives, apps, or q.")
+            dim("Unknown command. Try: scan <app>, find <name>, gdrive, all, age <days>, drives, apps, or q.")
         print()
 
     print()
